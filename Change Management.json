@@ -1,0 +1,207 @@
+{
+  "name": "Change Management",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Change",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ef3472b9-9cdb-4803-9b88-8ce20674aab1",
+      "name": "Webhook - Receive Change Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        496,
+        0
+      ],
+      "webhookId": "change-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst changeRequest = body.changeRequest || body.change || body.input || JSON.stringify(body);\nreturn [{ json: { changeRequest, timestamp: body.timestamp || new Date().toISOString() } }];"
+      },
+      "id": "b68d1b72-ff7f-4411-9960-5abe064a2e9c",
+      "name": "Extract Change Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are an expert IT Change Manager with 15+ years of experience in ITIL change management. When given a change requirement, you generate a complete, professional Change Request document. Always respond ONLY with a valid JSON object — no markdown, no extra text, no backticks.\n\nThe JSON must contain exactly these keys:\n- shortDescription\n- changeDescription\n- impactDuringImpl\n- impactIfNotExecuted\n- worstCaseScenario\n- changeJustification\n- implementationPlan\n- backoutPlan\n- testPlan\n\nEach value should be a detailed, professional paragraph or structured text (use newlines for numbered steps where appropriate). Be thorough, specific, and use proper change management language.",
+              "role": "system"
+            },
+            {
+              "content": "=Generate a complete Change Request document for the following requirement:\n\n{{ $json.changeRequest }}\n\nRespond with a JSON object only."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 2500,
+          "temperature": 0.4
+        }
+      },
+      "id": "d7660125-d96b-435f-acda-18a3df8e9d5c",
+      "name": "OpenAI - Generate Change Sections",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OWPfy5Wjdh38PPey",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.message?.content || $input.first().json.choices?.[0]?.message?.content || $input.first().json.text || '';\n\nlet parsed;\ntry {\n  const clean = raw.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(clean);\n} catch(e) {\n  // Fallback: try to extract sections from plain text\n  const sections = [\n    'shortDescription', 'changeDescription', 'impactDuringImpl',\n    'impactIfNotExecuted', 'worstCaseScenario', 'changeJustification',\n    'implementationPlan', 'backoutPlan', 'testPlan'\n  ];\n  const headers = {\n    shortDescription: 'Short Description',\n    changeDescription: 'Change Description',\n    impactDuringImpl: 'Impact during implementation',\n    impactIfNotExecuted: 'Impact \\\\(if not executed\\\\)',\n    worstCaseScenario: 'Worst Case Scenario',\n    changeJustification: 'Change Justification',\n    implementationPlan: 'Implementation plan',\n    backoutPlan: 'Backout Plan',\n    testPlan: 'Test Plan'\n  };\n  parsed = {};\n  sections.forEach(key => {\n    const h = headers[key];\n    const regex = new RegExp(`${h}\\\\s*[:\\\\-]?\\\\s*([\\\\s\\\\S]*?)(?=\\n[A-Z]|$)`, 'i');\n    const match = raw.match(regex);\n    parsed[key] = match ? match[1].trim() : 'Not available';\n  });\n}\n\nreturn [{ json: { ...parsed, _rawResponse: raw, _success: true } }];"
+      },
+      "id": "14e2a783-4f1c-4dd9-8387-68c4c466a0bd",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
+        }
+      },
+      "id": "32ab2336-abc5-4b75-ae4c-b5f1f1b7a47d",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1376,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": true, \"message\": \"An error occurred while processing your change request.\", \"detail\": \"{{ $json.message }}\" }",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "20dda5c4-a960-482d-bdf2-6ea98e7c3310",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        912,
+        224
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Change Request": {
+      "main": [
+        [
+          {
+            "node": "Extract Change Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Change Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Change Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate Change Sections": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "92d8ec9b-501c-42bd-80ab-925f174df7d0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e64487dcb193387e60378f45fdf909daedcdf95a9e194c16ccc91bb0cc0b3539"
+  },
+  "id": "ewdlzxHoq0VJMmNh",
+  "tags": []
+}
